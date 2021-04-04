@@ -12,6 +12,20 @@ from flexget.entry import Entry
 
 log = logging.getLogger('synology')
 
+# Download station error codes
+ERRORS = {
+    "400": "File upload failed",
+    "401": "Max number of tasks reached",
+    "402": "Destination denied",
+    "403": "Destination does not exist",
+    "404": "Invalid task id",
+    "405": "Invalid task action",
+    "406": "No default destination",
+    "407": "Set destination failed",
+    "408": "File does not exist"
+}
+
+
 class Synology(object):
     schema = {
         'type': 'object',
@@ -21,7 +35,8 @@ class Synology(object):
             'username': {'type': 'string'},
             'password': {'type': 'string'},
             'secure': {'type': 'boolean'},
-            'verify': {'type': 'boolean'}
+            'verify': {'type': 'boolean'},
+            'destination': {'type': 'string'}
         },
         'required': ['host', 'username', 'password'],
         'additionalProperties': False
@@ -100,9 +115,26 @@ class Synology(object):
             "method": "create",
             "uri": entry['url']
         }
+
+        # Destination folder can be configured per-entry, or defaults to config default (optional)
+        destination = entry.get('destination', config.get('destination'))
+        if destination:
+            payload["destination"] = destination
+            log.debug("Destination folder: "+destination)
+
         log.info("Adding torrent %s" % entry['url'])
         response = session.post(url, data=payload)
         response.raise_for_status()
+
+        data = response.json()
+        if not data['success']:
+            error = self.error_message(data)
+            entry.fail("Failed to add magnet link: " + error)
+
+    def error_message(self, data):
+        error_code = data.get('error', {}).get('code')
+        return ERRORS.get(str(error_code)) if error_code else "Unknown error"
+
 
 @event('plugin.register')
 def register_plugin():
